@@ -1,107 +1,91 @@
 import streamlit as st
 import pandas as pd
-import requests
-from bs4 import BeautifulSoup
 import time
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from webdriver_manager.chrome import ChromeDriverManager
 
 st.set_page_config(page_title="PokéDeal Finder", page_icon="💳", layout="wide")
-st.title("💳 PokéDeal Finder — Leboncoin")
-st.markdown("Récupère les annonces Pokémon depuis Leboncoin avec images et liens cliquables !")
+st.title("💳 PokéDeal Finder — Leboncoin + Selenium")
+st.markdown("Scrape les vraies annonces Pokémon depuis Leboncoin avec un navigateur automatisé 🕵️‍♂️")
 
 # =====================
 # Paramètres utilisateur
 # =====================
 search_text = st.text_input("Rechercher une carte ou mot-clé", "pokemon")
 max_price = st.slider("Prix maximum (€)", 0, 500, 100)
-num_pages = st.slider("Nombre de pages à récupérer", 1, 3, 1)  # Leboncoin limite souvent
+num_pages = st.slider("Nombre de pages à scanner", 1, 3, 1)
 
 # =====================
-# Récupération multi-pages
+# Fonction de scraping
 # =====================
-annonces = []
-headers = {
-    "User-Agent": "Mozilla/5.0"
-}
+def scrape_leboncoin(search_text, num_pages):
+    options = Options()
+    options.add_argument("--headless")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
 
-for page in range(1, num_pages+1):
-    url = f"https://www.leboncoin.fr/recherche?category=39&text={search_text}&page={page}"
-    try:
-        response = requests.get(url, headers=headers)
-        response.raise_for_status()
-    except Exception as e:
-        st.warning(f"Impossible de récupérer la page {page} : {e}")
-        continue
+    driver = webdriver.Chrome(ChromeDriverManager().install(), options=options)
 
-    soup = BeautifulSoup(response.text, "html.parser")
-    items = soup.find_all("li", {"data-qa-id": "aditem_container"})
+    annonces = []
 
-    for item in items:
-        # Titre
-        title_tag = item.find("p", {"data-qa-id": "aditem_title"})
-        title = title_tag.text.strip() if title_tag else "N/A"
+    for page in range(1, num_pages + 1):
+        url = f"https://www.leboncoin.fr/recherche?category=39&text={search_text}&page={page}"
+        st.write(f"🔎 Lecture de la page {page} ...")
+        driver.get(url)
+        time.sleep(3)
 
-        # Prix
-        price_tag = item.find("span", {"data-qa-id": "aditem_price"})
-        price_text = price_tag.text.strip().replace("€", "").replace("\u202f", "").replace(",", ".") if price_tag else "0"
-        try:
-            price = float(price_text)
-        except:
-            price = 0
+        cards = driver.find_elements(By.CSS_SELECTOR, "[data-qa-id='aditem_container']")
+        for card in cards:
+            try:
+                title = card.find_element(By.CSS_SELECTOR, "[data-qa-id='aditem_title']").text
+                price = card.find_element(By.CSS_SELECTOR, "[data-qa-id='aditem_price']").text
+                link = card.find_element(By.TAG_NAME, "a").get_attribute("href")
+                img = card.find_element(By.TAG_NAME, "img").get_attribute("src")
+                annonces.append({
+                    "Nom": title,
+                    "Prix": price,
+                    "Lien": link,
+                    "Image": img
+                })
+            except Exception:
+                continue
 
-        # Lien
-        link_tag = item.find("a", href=True)
-        link = "https://www.leboncoin.fr" + link_tag['href'] if link_tag else ""
-
-        # Image
-        img_tag = item.find("img")
-        img_url = img_tag['src'] if img_tag else ""
-
-        # Score rentabilité sécurisé
-        try:
-            score = round((price*1.2 - price) / (price*1.2) * 100, 1)
-        except:
-            score = 0
-
-        annonces.append({
-            "Nom": title,
-            "Prix (€)": price,
-            "Lien": f"[Voir annonce]({link})",
-            "Image": img_url,
-            "Score Rentabilité": score
-        })
-
-    time.sleep(1)  # pause pour limiter les requêtes
+    driver.quit()
+    return annonces
 
 # =====================
-# Création DataFrame et filtrage
+# Bouton de lancement
 # =====================
-df = pd.DataFrame(annonces)
+if st.button("🔄 Lancer le scan Leboncoin"):
+    with st.spinner("Recherche d'annonces Pokémon en cours..."):
+        annonces = scrape_leboncoin(search_text, num_pages)
+        if not annonces:
+            st.error("Aucune annonce trouvée 😔")
+        else:
+            df = pd.DataFrame(annonces)
 
-# Colonnes numériques sécurisées
-for col in ["Prix (€)", "Score Rentabilité"]:
-    if col not in df.columns:
-        df[col] = 0
-    else:
-        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+            # Nettoyage du prix
+            df["Prix (€)"] = (
+                df["Prix"]
+                .str.replace("€", "")
+                .str.replace("\u202f", "")
+                .str.replace(",", ".")
+                .astype(float, errors="ignore")
+            )
 
-# Filtrer par prix max
-df_filtered = df[df["Prix (€)"] <= max_price].sort_values("Score Rentabilité", ascending=False)
+            df = df[df["Prix (€)"] <= max_price]
 
-# =====================
-# Affichage Streamlit
-# =====================
-if not df_filtered.empty:
-    for idx, row in df_filtered.iterrows():
-        st.markdown(f"### {row['Nom']}")
-        if row['Image']:
-            st.image(row['Image'], width=150)
-        st.markdown(f"**Prix :** {row['Prix (€)']} € | **Score Rentabilité :** {row['Score Rentabilité']} %")
-        st.markdown(f"{row['Lien']}")
-        st.markdown("---")
-else:
-    st.info("Aucune annonce ne correspond aux filtres sélectionnés.")
+            st.success(f"{len(df)} annonces trouvées ✅")
+            for _, row in df.iterrows():
+                st.markdown(f"### {row['Nom']}")
+                if row["Image"]:
+                    st.image(row["Image"], width=150)
+                st.markdown(f"**Prix :** {row['Prix (€)']} €")
+                st.markdown(f"[Voir l'annonce]({row['Lien']})")
+                st.markdown("---")
 
-st.info("Les scores de rentabilité sont basés sur une estimation simple (+20% prix marché).")
 
 
 
