@@ -7,8 +7,8 @@ from selenium.webdriver.common.by import By
 from webdriver_manager.chrome import ChromeDriverManager
 
 st.set_page_config(page_title="PokéDeal Finder", page_icon="💳", layout="wide")
-st.title("💳 PokéDeal Finder — Leboncoin + Selenium")
-st.markdown("Scrape les vraies annonces Pokémon depuis Leboncoin avec un navigateur automatisé 🕵️‍♂️")
+st.title("💳 PokéDeal Finder — Leboncoin (Render version)")
+st.markdown("Scrape les vraies annonces Pokémon depuis Leboncoin 🕵️‍♂️")
 
 # =====================
 # Paramètres utilisateur
@@ -21,20 +21,23 @@ num_pages = st.slider("Nombre de pages à scanner", 1, 3, 1)
 # Fonction de scraping
 # =====================
 def scrape_leboncoin(search_text, num_pages):
-    options = Options()
-    options.add_argument("--headless")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
+    # Configuration spéciale pour Render (Chrome headless)
+    chrome_options = Options()
+    chrome_options.add_argument("--headless=new")
+    chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+    chrome_options.add_argument("--window-size=1920x1080")
 
-    driver = webdriver.Chrome(ChromeDriverManager().install(), options=options)
+    driver = webdriver.Chrome(ChromeDriverManager().install(), options=chrome_options)
 
     annonces = []
-
     for page in range(1, num_pages + 1):
         url = f"https://www.leboncoin.fr/recherche?category=39&text={search_text}&page={page}"
         st.write(f"🔎 Lecture de la page {page} ...")
         driver.get(url)
-        time.sleep(3)
+        time.sleep(3)  # temps pour laisser charger le JS
 
         cards = driver.find_elements(By.CSS_SELECTOR, "[data-qa-id='aditem_container']")
         for card in cards:
@@ -65,8 +68,6 @@ if st.button("🔄 Lancer le scan Leboncoin"):
             st.error("Aucune annonce trouvée 😔")
         else:
             df = pd.DataFrame(annonces)
-
-            # Nettoyage du prix
             df["Prix (€)"] = (
                 df["Prix"]
                 .str.replace("€", "")
@@ -78,13 +79,19 @@ if st.button("🔄 Lancer le scan Leboncoin"):
             df = df[df["Prix (€)"] <= max_price]
 
             st.success(f"{len(df)} annonces trouvées ✅")
+
+            # Affichage des annonces avec images
             for _, row in df.iterrows():
-                st.markdown(f"### {row['Nom']}")
-                if row["Image"]:
-                    st.image(row["Image"], width=150)
-                st.markdown(f"**Prix :** {row['Prix (€)']} €")
-                st.markdown(f"[Voir l'annonce]({row['Lien']})")
-                st.markdown("---")
+                with st.container():
+                    cols = st.columns([1, 3])
+                    with cols[0]:
+                        if row["Image"]:
+                            st.image(row["Image"], width=120)
+                    with cols[1]:
+                        st.markdown(f"### {row['Nom']}")
+                        st.markdown(f"💰 **Prix :** {row['Prix (€)']} €")
+                        st.markdown(f"[🔗 Voir l'annonce]({row['Lien']})")
+                        st.markdown("---")
 
 
 
