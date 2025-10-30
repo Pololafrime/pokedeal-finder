@@ -19,7 +19,6 @@ num_pages = st.slider("Nombre de pages à récupérer", 1, 5, 2)
 # Récupération multi-pages
 # =====================
 annonces = []
-
 headers = {"User-Agent": "Mozilla/5.0"}
 
 for page in range(1, num_pages+1):
@@ -63,12 +62,20 @@ for page in range(1, num_pages+1):
             "Score Rentabilité": round((price*1.2 - price) / (price*1.2) * 100, 1)
         })
 
-    time.sleep(1)  # pause pour ne pas surcharger le site
+    time.sleep(1)  # pause pour limiter les requêtes
 
 # =====================
 # Création DataFrame et filtrage
 # =====================
 df = pd.DataFrame(annonces)
+
+# S'assurer que la colonne "Prix (€)" existe et est numérique
+if "Prix (€)" not in df.columns:
+    df["Prix (€)"] = 0
+else:
+    df["Prix (€)"] = pd.to_numeric(df["Prix (€)"], errors='coerce').fillna(0)
+
+# Filtrer par prix maximum
 df_filtered = df[df["Prix (€)"] <= max_price].sort_values("Score Rentabilité", ascending=False)
 
 # =====================
@@ -77,7 +84,8 @@ df_filtered = df[df["Prix (€)"] <= max_price].sort_values("Score Rentabilité"
 if not df_filtered.empty:
     for idx, row in df_filtered.iterrows():
         st.markdown(f"### {row['Nom']}")
-        st.image(row['Image'], width=150)
+        if row['Image']:
+            st.image(row['Image'], width=150)
         st.markdown(f"**Prix :** {row['Prix (€)']} € | **Score Rentabilité :** {row['Score Rentabilité']} %")
         st.markdown(f"{row['Lien']}")
         st.markdown("---")
@@ -85,4 +93,5 @@ else:
     st.info("Aucune annonce ne correspond aux filtres sélectionnés.")
 
 st.info("Les scores de rentabilité sont basés sur une estimation simple (+20% prix marché).")
+
 
