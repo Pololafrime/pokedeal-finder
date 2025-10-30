@@ -54,12 +54,18 @@ for page in range(1, num_pages+1):
         img_tag = item.find("img")
         img_url = img_tag['src'] if img_tag else ""
 
+        # Score de rentabilité sécurisé
+        try:
+            score = round((price*1.2 - price) / (price*1.2) * 100, 1)
+        except:
+            score = 0
+
         annonces.append({
             "Nom": title,
             "Prix (€)": price,
             "Lien": f"[Voir annonce]({link})",
             "Image": img_url,
-            "Score Rentabilité": round((price*1.2 - price) / (price*1.2) * 100, 1)
+            "Score Rentabilité": score
         })
 
     time.sleep(1)  # pause pour limiter les requêtes
@@ -69,11 +75,12 @@ for page in range(1, num_pages+1):
 # =====================
 df = pd.DataFrame(annonces)
 
-# S'assurer que la colonne "Prix (€)" existe et est numérique
-if "Prix (€)" not in df.columns:
-    df["Prix (€)"] = 0
-else:
-    df["Prix (€)"] = pd.to_numeric(df["Prix (€)"], errors='coerce').fillna(0)
+# S'assurer que les colonnes existent et sont numériques
+for col in ["Prix (€)", "Score Rentabilité"]:
+    if col not in df.columns:
+        df[col] = 0
+    else:
+        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
 # Filtrer par prix maximum
 df_filtered = df[df["Prix (€)"] <= max_price].sort_values("Score Rentabilité", ascending=False)
@@ -91,6 +98,9 @@ if not df_filtered.empty:
         st.markdown("---")
 else:
     st.info("Aucune annonce ne correspond aux filtres sélectionnés.")
+
+st.info("Les scores de rentabilité sont basés sur une estimation simple (+20% prix marché).")
+
 
 st.info("Les scores de rentabilité sont basés sur une estimation simple (+20% prix marché).")
 
